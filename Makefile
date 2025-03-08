@@ -2,7 +2,7 @@
 
 # Build the binary
 build:
-	go build -o contextor
+	go build -o contextor && chmod +x contextor
 
 # Install the binary to /usr/local/bin (requires sudo)
 install-system: build
@@ -19,7 +19,7 @@ install-user: build
 	@echo ""
 
 # Default install (user install)
-install: install-user
+install: install-system
 
 # Clean build artifacts
 clean:
