@@ -23,15 +23,36 @@ jobs:
       - name: Get current version
         id: current
         run: |
-          VERSION=$(grep "VERSION = " contextor.go | cut -d'"' -f2)
-          echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+          if grep -q 'VERSION = ' version.go; then
+            VERSION=$(grep 'VERSION = ' version.go | cut -d'"' -f2)
+            echo "Found version: $VERSION"
+            echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "Version constant not found in version.go, using default"
+            echo "current_version=0.1.0" >> $GITHUB_OUTPUT
+          fi
       
       - name: Bump version
         id: bump
         run: |
           # Parse current version
           current_version=${{ steps.current.outputs.current_version }}
-          IFS='.' read -r major minor patch <<< "$current_version"
+          echo "Current version: $current_version"
+          
+          # Split version into components
+          IFS='.' read -r -a version_parts <<< "$current_version"
+          
+          # Handle case where version isn't properly parsed
+          if [ ${#version_parts[@]} -ne 3 ]; then
+            echo "Invalid version format, resetting to 0.1.0"
+            major=0
+            minor=1
+            patch=0
+          else
+            major=${version_parts[0]}
+            minor=${version_parts[1]}
+            patch=${version_parts[2]}
+          fi
           
           # Increment patch version
           new_patch=$((patch + 1))
@@ -42,15 +63,26 @@ jobs:
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           
           # Update version in source file
-          sed -i "s/VERSION = \"$current_version\"/VERSION = \"$new_version\"/" contextor.go
+          if [ -f "version.go" ]; then
+            sed -i "s/VERSION = \".*\"/VERSION = \"$new_version\"/" version.go
+            echo "Updated version.go to version $new_version"
+          else
+            echo "Warning: version.go not found"
+          fi
       
       - name: Commit and push version bump
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add contextor.go
-          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}"
-          git push
+          
+          # Only commit if there are changes
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git add version.go
+            git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}"
+            git push
+          fi
 
   build:
     needs: bump-version
@@ -86,6 +118,8 @@ jobs:
   release:
     needs: [bump-version, build]
     runs-on: ubuntu-latest
+    # Only create a release if there was actually a version bump
+    if: needs.bump-version.outputs.new_version != ''
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
