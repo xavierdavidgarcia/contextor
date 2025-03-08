@@ -1,0 +1,116 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      
+      - name: Get current version
+        id: current
+        run: |
+          VERSION=$(grep "VERSION = " contextor.go | cut -d'"' -f2)
+          echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Bump version
+        id: bump
+        run: |
+          # Parse current version
+          current_version=${{ steps.current.outputs.current_version }}
+          IFS='.' read -r major minor patch <<< "$current_version"
+          
+          # Increment patch version
+          new_patch=$((patch + 1))
+          new_version="$major.$minor.$new_patch"
+          
+          echo "Current version: $current_version"
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          
+          # Update version in source file
+          sed -i "s/VERSION = \"$current_version\"/VERSION = \"$new_version\"/" contextor.go
+      
+      - name: Commit and push version bump
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add contextor.go
+          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}"
+          git push
+
+  build:
+    needs: bump-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows
+            arch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: main # Get the latest code with version bump
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      
+      - name: Build binary
+        run: |
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o contextor-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: contextor-${{ matrix.os }}-${{ matrix.arch }}
+          path: contextor-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+
+  release:
+    needs: [bump-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: main # Get the latest code with version bump
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.bump-version.outputs.new_version }}
+          name: Release v${{ needs.bump-version.outputs.new_version }}
+          draft: false
+          prerelease: false
+          files: contextor-*/*
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            ## Contextor v${{ needs.bump-version.outputs.new_version }}
+            
+            Automated release from GitHub Actions.
+            
+            ### Binaries
+            - Linux (amd64, arm64)
+            - macOS (amd64, arm64)
+            - Windows (amd64)
