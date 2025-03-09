@@ -1,3 +1,4 @@
-module github.com/yourusername/contextor
+module github.com/xavierdavidgarcia/contextor
 
-go 1.24.1
+go 1.20
+
