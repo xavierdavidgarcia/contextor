@@ -7,7 +7,7 @@ import (
 
 // Version information - this will be updated automatically by GitHub Actions
 const (
-	VERSION = "0.1.3"
+	VERSION = "0.1.4"
 )
 
 // VersionInfo holds extended version information
